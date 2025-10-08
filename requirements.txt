@@ -1,0 +1,52 @@
+# Core dependencies
+pycparser==2.21          # C parser
+pydantic==2.5.0          # Data validation
+PyYAML==6.0.1            # Config management
+
+# CLI
+click==8.1.7             # Command-line interface
+typer==0.9.0             # Alternative CLI framework
+rich==13.7.0             # Beautiful terminal output
+
+# Logging
+loguru==0.7.2            # Better logging
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+
+# Code generation & templates
+Jinja2==3.1.2            # Template engine for code generation
+
+# Async
+aiofiles==23.2.1         # Async file operations
+
+# Utilities
+python-dotenv==1.0.0     # Environment variables
+toml==0.10.2             # TOML config
+
+# Type checking (dev)
+mypy==1.7.1
+types-PyYAML==6.0.12.12
+
+# Code quality (dev)
+black==23.12.0           # Code formatter
+flake8==6.1.0            # Linter
+pylint==3.0.3            # Linter
+isort==5.13.2            # Import sorter
+
+# Documentation
+sphinx==7.2.6            # Documentation generator
+sphinx-rtd-theme==2.0.0  # ReadTheDocs theme
+
+# JSON/Data
+orjson==3.9.10           # Fast JSON
+
+# File system
+watchdog==3.0.0          # File system monitoring
+
+# Performance
+psutil==5.9.6            # System and process utilities
+

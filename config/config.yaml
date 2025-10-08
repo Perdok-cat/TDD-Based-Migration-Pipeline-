@@ -1,0 +1,93 @@
+# C to C# Migration Pipeline Configuration
+
+# Migration settings
+migration:
+  max_retries: 3                    # Maximum retry attempts per component
+  parallel_execution: false         # Enable parallel processing
+  workers: 4                        # Number of parallel workers
+  timeout_seconds: 300              # Timeout per component conversion
+
+# Compiler settings
+compiler:
+  c_compiler: gcc                   # C compiler command
+  c_compiler_flags: ["-Wall", "-O2", "-std=c11"]
+  csharp_compiler: dotnet           # C# compiler: 'dotnet' or 'csc' (Mono)
+  csharp_compiler_flags: []
+  csharp_framework: net8.0          # Target framework
+
+# Parser settings
+parser:
+  enable_preprocessor: true         # Process #define, #include
+  preserve_comments: true           # Keep comments in output
+  handle_platform_specific: true    # Handle platform-specific code
+
+# Test generation settings
+test_generation:
+  auto_generate: true               # Auto-generate test cases
+  boundary_testing: true            # Generate boundary test cases
+  random_testing: true              # Generate random test cases
+  random_seed: 42                   # Seed for reproducibility
+  tests_per_function: 5             # Number of tests per function
+  max_array_size: 100               # Max array size for testing
+  
+# Converter settings
+converter:
+  preserve_structure: true          # Keep similar code structure
+  add_comments: true                # Add conversion comments
+  use_unsafe_code: false            # Allow unsafe C# code for pointers
+  modern_csharp: true               # Use modern C# features
+  target_version: "11.0"            # C# language version
+
+# Type mapping
+type_mapping:
+  int: "int"
+  long: "long"
+  short: "short"
+  char: "char"
+  float: "float"
+  double: "double"
+  void: "void"
+  "unsigned int": "uint"
+  "unsigned long": "ulong"
+  "unsigned short": "ushort"
+  "unsigned char": "byte"
+
+# Validation settings
+validation:
+  floating_point_tolerance: 1.0e-6  # Tolerance for float comparison
+  string_comparison: exact          # exact | case_insensitive
+  ignore_whitespace: true           # Ignore whitespace in string comparison
+  array_order_matters: true         # Array element order must match
+
+# Output settings
+output:
+  generate_html_report: true
+  generate_json_report: true
+  generate_markdown_report: true
+  save_intermediate_files: true     # Save AST, test scripts, etc.
+  verbose_logging: true
+  log_level: INFO                   # DEBUG | INFO | WARNING | ERROR
+
+# Paths
+paths:
+  output_dir: "output"
+  converted_dir: "output/converted"
+  reports_dir: "output/reports"
+  test_results_dir: "output/test_results"
+  logs_dir: "output/logs"
+  temp_dir: "output/temp"
+
+# Performance settings
+performance:
+  cache_enabled: true               # Cache parsed ASTs
+  cache_dir: ".cache"
+  max_memory_mb: 2048               # Max memory usage
+  
+# Features flags
+features:
+  handle_function_pointers: true
+  handle_unions: true
+  handle_bit_fields: true
+  handle_inline_assembly: false     # Skip inline assembly
+  handle_variadic_functions: true
+

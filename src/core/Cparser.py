@@ -23,8 +23,19 @@ class CParser:
     """
 
     def __init__(self) -> None:
-        self.language = Language(tsc.language())
-        self.parser = Parser(self.language)
+        # Handle tree-sitter API differences gracefully
+        self.parser = Parser()
+        try:
+            # tree-sitter >= 0.25.0 supports constructing Language from a capsule
+            self.language = Language(tsc.language())
+            self.parser.language = self.language
+        except TypeError as e:
+            # Older tree-sitter expects (library_path, name) and cannot use the capsule
+            # Provide a clear, actionable error to upgrade dependencies
+            raise RuntimeError(
+                "Incompatible tree-sitter version detected. Please upgrade to tree-sitter>=0.25.0 and tree-sitter-c>=0.24.0 (pip install -U tree-sitter tree-sitter-c). Original error: "
+                + str(e)
+            )
 
     # ----------------------- Utilities -----------------------
 
@@ -103,6 +114,84 @@ class CParser:
 
         _walk(node)
         return calls
+    
+    def extract_function_signature(self, func_node, code: bytes) -> Tuple[str, List[Tuple[str, str]]]:
+        """
+        Extract function signature: return type and parameters.
+        
+        Args:
+            func_node: function_definition node
+            code: source code bytes
+            
+        Returns:
+            Tuple of (return_type, parameters) where parameters is list of (type, name) tuples
+        """
+        return_type = "void"
+        parameters = []
+        
+        # Find the declarator and type specifier
+        for child in func_node.children:
+            # Extract return type from primitive_type or type_identifier
+            if child.type in ("primitive_type", "type_identifier", "sized_type_specifier"):
+                return_type = self._node_text(child, code).strip()
+            
+            # Extract parameters from function_declarator
+            elif child.type == "function_declarator":
+                # Find parameter_list
+                param_list = child.child_by_field_name("parameters")
+                if param_list:
+                    parameters = self._extract_parameters(param_list, code)
+        
+        return return_type, parameters
+    
+    def _extract_parameters(self, param_list_node, code: bytes) -> List[Tuple[str, str]]:
+        """Extract parameters from parameter_list node."""
+        parameters = []
+        
+        for child in param_list_node.children:
+            if child.type == "parameter_declaration":
+                param_type = ""
+                param_name = ""
+                pointer_level = 0
+                
+                for param_child in child.children:
+                    # Get type
+                    if param_child.type in ("primitive_type", "type_identifier", "sized_type_specifier"):
+                        param_type = self._node_text(param_child, code).strip()
+                    
+                    # Check for pointers
+                    elif param_child.type == "pointer_declarator":
+                        # Count pointer levels
+                        temp_node = param_child
+                        while temp_node.type == "pointer_declarator":
+                            pointer_level += 1
+                            # Find the actual identifier
+                            for p_child in temp_node.children:
+                                if p_child.type == "identifier":
+                                    param_name = self._node_text(p_child, code).strip()
+                                    temp_node = None
+                                    break
+                                elif p_child.type == "pointer_declarator":
+                                    temp_node = p_child
+                                    break
+                            if temp_node is None:
+                                break
+                    
+                    # Get identifier (non-pointer case)
+                    elif param_child.type == "identifier":
+                        param_name = self._node_text(param_child, code).strip()
+                
+                # Add pointer asterisks to type
+                if pointer_level > 0:
+                    param_type += "*" * pointer_level
+                
+                if param_type:
+                    # If no name, use placeholder
+                    if not param_name:
+                        param_name = f"param{len(parameters)}"
+                    parameters.append((param_type, param_name))
+        
+        return parameters
 
     def extract_includes_simple(self, root, code: bytes) -> Tuple[List[str], List[str]]:
         """

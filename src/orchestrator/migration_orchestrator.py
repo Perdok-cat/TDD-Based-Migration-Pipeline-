@@ -17,15 +17,16 @@ from ..core.models.conversion_result import (
     ConversionStatus
 )
 
-# Import services (will be implemented)
-# from ..parser.c_parser import CParser
-# from ..dependency_analyzer.dependency_service import DependencyAnalyzerService
-# from ..test_generator.test_generator import TestGenerator
-# from ..test_runner.c_test_runner import CTestRunner
-# from ..test_runner.csharp_test_runner import CSharpTestRunner
-# from ..converter.c_to_csharp_converter import CToC#Converter
-# from ..validator.output_validator import OutputValidator
-# from ..report_generator.report_service import ReportService
+# Import services
+from ..test_generator.test_generator import TestGenerator
+from ..test_runner.c_test_runner import CTestRunner
+from ..test_runner.csharp_test_runner import CSharpTestRunner
+from ..converter.hybrid_converter import create_converter
+from ..validator.output_validator import OutputValidator
+from ..core.Cparser import CParser
+from ..core.models.c_program import CInclude, CFunction, CVariable
+from ..core.dependencies_analysis import DependenciesAnalysis
+# from ..report_generator.report_service import ReportService  # TODO: Implement later
 
 
 class MigrationOrchestrator:
@@ -48,15 +49,13 @@ class MigrationOrchestrator:
         self.config = config or self._default_config()
         self.logger = logging.getLogger(__name__)
         
-        # Initialize services (commented out until implemented)
-        # self.parser = CParser()
-        # self.dependency_analyzer = DependencyAnalyzerService()
-        # self.test_generator = TestGenerator()
-        # self.c_test_runner = CTestRunner()
-        # self.csharp_test_runner = CSharpTestRunner()
-        # self.converter = CToC#Converter()
-        # self.validator = OutputValidator()
-        # self.report_service = ReportService()
+        # Initialize services
+        self.test_generator = TestGenerator()
+        self.c_test_runner = CTestRunner()
+        self.csharp_test_runner = CSharpTestRunner()
+        self.converter = create_converter(self.config.get("converter", {}))
+        self.validator = OutputValidator()
+        # self.report_service = ReportService()  # TODO: Implement later
         
         # State
         self.programs: List[CProgram] = []
@@ -100,6 +99,7 @@ class MigrationOrchestrator:
             # Step 1: Parse C programs
             self.logger.info("\n[Step 1] Parsing C programs...")
             self.programs = self._parse_c_programs(input_dir)
+            self._parsed_programs = self.programs  # Store for dependency analysis
             self.migration_report.total_programs = len(self.programs)
             self.logger.info(f"✓ Found {len(self.programs)} C programs")
             
@@ -114,7 +114,7 @@ class MigrationOrchestrator:
             else:
                 self.logger.info("✓ No circular dependencies found")
             
-            # Step 3: Get conversion order
+            # Step 3: Determine conversion order
             self.logger.info("\n[Step 3] Determining conversion order...")
             try:
                 conversion_order = self.dependency_graph.get_conversion_order()
@@ -123,12 +123,15 @@ class MigrationOrchestrator:
                 self.logger.error(f"✗ Cannot determine conversion order: {e}")
                 return self.migration_report
             
-            # Step 4: Main conversion loop
-            self.logger.info("\n[Step 4] Starting conversion loop...")
+            # Step 4: Convert files one by one in dependency order
+            self.logger.info("\n[Step 4] Converting files in dependency order...")
             self.logger.info("-"*70)
             
+            # Accumulate converted code from all files
+            all_converted_code_parts: List[str] = []
+            
             for idx, program_id in enumerate(conversion_order, 1):
-                self.logger.info(f"\n[{idx}/{len(conversion_order)}] Processing: {program_id}")
+                self.logger.info(f"\n[{idx}/{len(conversion_order)}] Converting: {program_id}")
                 
                 # Get program
                 program = self._get_program_by_id(program_id)
@@ -136,19 +139,23 @@ class MigrationOrchestrator:
                     self.logger.error(f"✗ Program not found: {program_id}")
                     continue
                 
-                # Convert single program with retry
+                # Convert single file with retry (using Gemini API)
                 result = self._convert_program_with_retry(
                     program,
-                    output_dir or self.config["output_dir"]
+                    output_dir or self.config["output_dir"],
+                    previously_converted_code=all_converted_code_parts  # Pass context of already converted files
                 )
                 
                 # Add to report
                 self.migration_report.add_result(result)
                 
-                # Update dependency graph
+                # Update dependency graph and accumulate converted code
                 if result.status == ConversionStatus.SUCCESS:
                     self.dependency_graph.mark_as_converted(program_id)
                     program.is_converted = True
+                    # Accumulate converted code for next files
+                    if result.csharp_code:
+                        all_converted_code_parts.append(result.csharp_code)
                     self.logger.info(f"✓ {program_id}: {result.get_summary()}")
                 else:
                     self.logger.error(f"✗ {program_id}: {result.get_summary()}")
@@ -175,7 +182,8 @@ class MigrationOrchestrator:
     def _convert_program_with_retry(
         self,
         program: CProgram,
-        output_dir: str
+        output_dir: str,
+        previously_converted_code: Optional[List[str]] = None
     ) -> ConversionResult:
         """
         Convert một program với retry logic
@@ -214,9 +222,9 @@ class MigrationOrchestrator:
                 c_test_results = self._run_c_tests(program, test_suite)
                 self.logger.info(f"    C tests completed")
                 
-                # Sub-step 3: Convert to C#
-                self.logger.info(f"  → Converting C to C#...")
-                csharp_code = self._convert_to_csharp(program)
+                # Sub-step 3: Convert to C# using Gemini API
+                self.logger.info(f"  → Converting C to C# using Gemini API...")
+                csharp_code = self._convert_to_csharp(program, previously_converted_code)
                 result.csharp_code = csharp_code
                 self.logger.info(f"    Conversion completed")
                 
@@ -272,33 +280,243 @@ class MigrationOrchestrator:
     
     def _parse_c_programs(self, input_dir: str) -> List[CProgram]:
         """Parse all C programs in directory"""
-        # TODO: Implement with CParser
-        self.logger.warning("CParser not yet implemented, using mock data")
-        return []
+        self.logger.info(f"Parsing C programs from: {input_dir}")
+        
+        try:
+            parser = CParser()
+            
+            # Find all C files
+            c_files = parser.find_c_files(input_dir)
+            if not c_files:
+                self.logger.warning(f"No C files found in {input_dir}")
+                return []
+            
+            self.logger.info(f"Found {len(c_files)} C files to parse")
+            
+            programs = []
+            for file_path in c_files:
+                try:
+                    # Parse the file
+                    tree, code_bytes = parser.parse_file(file_path)
+                    
+                    # Check if parsing was successful
+                    if tree is None:
+                        self.logger.error(f"Failed to parse {file_path}: tree is None")
+                        continue
+                    
+                    if tree.root_node is None:
+                        self.logger.error(f"Failed to parse {file_path}: root_node is None")
+                        continue
+                    
+                    # Check for parse errors
+                    if tree.root_node.has_error:
+                        self.logger.warning(f"Parse tree has errors for {file_path}, but continuing...")
+                    
+                    source_code = code_bytes.decode('utf-8', errors='ignore')
+                    
+                    # Extract basic information
+                    root = tree.root_node
+                    system_includes, user_includes = parser.extract_includes_simple(root, code_bytes)
+                    
+                    # Create CInclude objects
+                    includes = []
+                    for header in system_includes:
+                        includes.append(CInclude(
+                            file_name=header,
+                            is_system=True,
+                            line_number=0  # TODO: Extract actual line numbers
+                        ))
+                    for header in user_includes:
+                        includes.append(CInclude(
+                            file_name=header,
+                            is_system=False,
+                            line_number=0  # TODO: Extract actual line numbers
+                        ))
+                    
+                    # Extract functions
+                    functions = []
+                    for func_name, func_node in parser.walk_functions(root, code_bytes):
+                        # Extract function calls
+                        calls = parser.extract_calls_in_node(func_node, code_bytes)
+                        
+                        # Get function text
+                        func_text = parser._node_text(func_node, code_bytes)
+                        
+                        # Extract function signature (return type and parameters)
+                        return_type, param_list = parser.extract_function_signature(func_node, code_bytes)
+                        
+                        # Convert parameter tuples to CVariable objects
+                        from ..core.models.c_program import CVariable
+                        parameters = []
+                        for param_type, param_name in param_list:
+                            # Count pointer levels
+                            pointer_level = param_type.count('*')
+                            base_type = param_type.replace('*', '').strip()
+                            
+                            parameters.append(CVariable(
+                                name=param_name,
+                                data_type=base_type,
+                                pointer_level=pointer_level,
+                                is_pointer=(pointer_level > 0)
+                            ))
+                        
+                        # Create CFunction object
+                        c_function = CFunction(
+                            name=func_name,
+                            return_type=return_type,
+                            parameters=parameters,
+                            body=func_text,
+                            called_functions=calls,
+                            line_start=func_node.start_point[0] + 1,
+                            line_end=func_node.end_point[0] + 1,
+                            complexity=0  # TODO: Calculate complexity
+                        )
+                        functions.append(c_function)
+                    
+                    # Create CProgram object
+                    program_id = file_path.stem  # Use filename without extension as ID
+                    program = CProgram(
+                        program_id=program_id,
+                        file_path=str(file_path),
+                        source_code=source_code,
+                        includes=includes,
+                        functions=functions,
+                        lines_of_code=len(source_code.split('\n')),
+                        complexity_score=0.0
+                    )
+                    
+                    # Calculate complexity
+                    program.calculate_complexity()
+                    
+                    programs.append(program)
+                    self.logger.debug(f"Parsed {file_path}: {len(functions)} functions, {len(includes)} includes")
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to parse {file_path}: {e}")
+                    import traceback
+                    self.logger.debug(f"Traceback: {traceback.format_exc()}")
+                    continue
+            
+            self.logger.info(f"Successfully parsed {len(programs)} C programs")
+            return programs
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing C programs: {e}")
+            return []
     
     def _analyze_dependencies(self) -> DependencyGraph:
         """Analyze dependencies between programs"""
-        # TODO: Implement with DependencyAnalyzerService
-        self.logger.warning("DependencyAnalyzer not yet implemented, using empty graph")
-        return DependencyGraph()
+        self.logger.info("Analyzing dependencies between C programs")
+        
+        try:
+            if not hasattr(self, '_parsed_programs') or not self._parsed_programs:
+                self.logger.warning("No parsed programs available for dependency analysis")
+                return DependencyGraph()
+            
+            # Create file data for dependency analysis
+            file_data_for_graph = {}
+            for program in self._parsed_programs:
+                file_path = program.file_path
+                file_name = Path(file_path).name
+                
+                # Extract user includes (non-system headers)
+                user_includes = []
+                for include in program.includes:
+                    if not include.is_system:
+                        user_includes.append(include.file_name)
+                
+                file_data_for_graph[file_path] = {
+                    'user_includes': user_includes,
+                    'system_includes': [inc.file_name for inc in program.includes if inc.is_system],
+                    'functions': program.get_all_function_names(),
+                    'total_lines': program.lines_of_code
+                }
+            
+            # Use DependenciesAnalysis to build dependency graph
+            deps_analyzer = DependenciesAnalysis()
+            graph, order, cycles = deps_analyzer.analyze_dependencies(
+                file_data_for_graph, 
+                export_graph=False
+            )
+            
+            # Convert to DependencyGraph format
+            dependency_graph = DependencyGraph()
+            
+            # Add nodes to dependency graph
+            for file_path, program in zip(file_data_for_graph.keys(), self._parsed_programs):
+                file_name = Path(file_path).name
+                program_id = program.program_id
+                
+                # Get dependencies for this file
+                dependencies = []
+                if file_name in graph:
+                    for dep_file in graph[file_name]:
+                        # Find the corresponding program ID
+                        dep_program_id = None
+                        for p in self._parsed_programs:
+                            if Path(p.file_path).name == dep_file:
+                                dep_program_id = p.program_id
+                                break
+                        
+                        if dep_program_id and dep_program_id != program_id:
+                            dependencies.append(dep_program_id)
+                
+                dependency_graph.add_node(program_id, dependencies)
+            
+            # Log analysis results
+            stats = dependency_graph.get_statistics()
+            self.logger.info(f"Dependency analysis complete:")
+            self.logger.info(f"  - Total programs: {stats['total_programs']}")
+            self.logger.info(f"  - Total dependencies: {stats['total_dependencies']}")
+            self.logger.info(f"  - Circular dependencies: {stats['circular_dependencies']}")
+            
+            if cycles:
+                self.logger.warning(f"Found {len(cycles)} circular dependencies:")
+                for i, cycle in enumerate(cycles, 1):
+                    cycle_str = " -> ".join(cycle)
+                    self.logger.warning(f"  Cycle {i}: {cycle_str}")
+            else:
+                self.logger.info("No circular dependencies found")
+            
+            # Try to get conversion order
+            try:
+                conversion_order = dependency_graph.get_conversion_order()
+                self.logger.info(f"Recommended conversion order: {conversion_order}")
+            except ValueError as e:
+                self.logger.warning(f"Cannot determine conversion order: {e}")
+            
+            return dependency_graph
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing dependencies: {e}")
+            return DependencyGraph()
     
     def _generate_tests(self, program: CProgram) -> TestSuite:
         """Generate test cases for program"""
-        # TODO: Implement with TestGenerator
-        self.logger.warning("TestGenerator not yet implemented")
-        return TestSuite(program_id=program.program_id)
+        return self.test_generator.generate_tests(program)
     
     def _run_c_tests(self, program: CProgram, test_suite: TestSuite) -> Dict:
         """Run C tests and get baseline outputs"""
-        # TODO: Implement with CTestRunner
-        self.logger.warning("CTestRunner not yet implemented")
-        return {}
+        # Generate test harness
+        test_harness_code = self.test_generator.generate_test_harness_c(program, test_suite)
+        
+        # Run tests
+        return self.c_test_runner.run_tests(program, test_suite, test_harness_code)
     
-    def _convert_to_csharp(self, program: CProgram) -> str:
-        """Convert C program to C#"""
-        # TODO: Implement with CToC#Converter
-        self.logger.warning("CToC#Converter not yet implemented")
-        return "// TODO: Generated C# code"
+    def _convert_to_csharp(self, program: CProgram, previously_converted_code: Optional[List[str]] = None) -> str:
+        """
+        Convert C program to C# using Gemini API
+        
+        Args:
+            program: CProgram to convert
+            previously_converted_code: List of C# code from previously converted files (for context)
+            
+        Returns:
+            C# code string
+        """
+        # Use HybridConverter which will use Gemini API if available
+        # Previously converted code can be used as context if needed
+        return self.converter.convert(program)
     
     def _run_csharp_tests(
         self,
@@ -307,9 +525,11 @@ class MigrationOrchestrator:
         csharp_code: str
     ) -> Dict:
         """Run C# tests"""
-        # TODO: Implement with CSharpTestRunner
-        self.logger.warning("CSharpTestRunner not yet implemented")
-        return {}
+        # Generate C# test harness
+        test_harness_code = self.csharp_test_runner.generate_test_harness_csharp(program, test_suite)
+        
+        # Run tests
+        return self.csharp_test_runner.run_tests(program, test_suite, csharp_code, test_harness_code)
     
     def _validate_outputs(
         self,
@@ -318,9 +538,7 @@ class MigrationOrchestrator:
         csharp_results: Dict
     ) -> List[ValidationResult]:
         """Validate C vs C# outputs"""
-        # TODO: Implement with OutputValidator
-        self.logger.warning("OutputValidator not yet implemented")
-        return []
+        return self.validator.validate(test_suite, c_results, csharp_results)
     
     def _generate_reports(self, output_dir: str) -> None:
         """Generate migration reports"""

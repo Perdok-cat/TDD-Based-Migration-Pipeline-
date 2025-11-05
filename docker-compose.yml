@@ -1,0 +1,26 @@
+
+services:
+  migration-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: c-to-csharp-migration
+    volumes:
+      # Mount thư mục examples để đọc input
+      - ./examples:/app/examples:Z
+      # Mount thư mục output để lưu kết quả
+      - ./output:/app/ouput:Z
+      # Mount thư mục config nếu muốn chỉnh sửa config
+      - ./config:/app/config:Z
+      # Mount generated_csharp để xem code đã convert
+      - ./generated_csharp:/app/generated_csharp:Z
+      - ./src:/app/src:Z
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    working_dir: /app
+    # Override command mặc định nếu cần
+    # command: python3 main.py migrate -i examples/test_project -o output/converted
+    stdin_open: true
+    tty: true
+

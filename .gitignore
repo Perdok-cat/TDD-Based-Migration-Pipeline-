@@ -67,3 +67,4 @@ config/config.local.yaml
 .env
 .env.local
 
+config/config.yaml

@@ -50,3 +50,10 @@ watchdog==3.0.0          # File system monitoring
 # Performance
 psutil==5.9.6            # System and process utilities
 
+# HTTP
+requests==2.32.3         # HTTP client used by gemini converter
+
+# Tree-sitter for C parsing
+tree-sitter>=0.25.0      # Tree-sitter parser library (newer API)
+tree-sitter-c>=0.24.0    # C language grammar for tree-sitter
+

@@ -4,8 +4,9 @@ C to C# Migration Pipeline - Main Entry Point
 """
 import sys
 import logging
-from pathlib import Path
-from typing import Optional
+import yaml
+from pathlib import Path    
+from typing import Optional, Dict, Any
 import click
 from rich.console import Console
 from rich.logging import RichHandler
@@ -26,6 +27,18 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def load_config_file(config_path: str) -> Dict[str, Any]:
+    """Load configuration from YAML file."""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"✓ Loaded configuration from: {config_path}")
+        return config
+    except Exception as e:
+        logger.error(f"Failed to load config from {config_path}: {e}")
+        return {}
 
 
 @click.group()
@@ -115,7 +128,18 @@ def migrate(
     console.print(f"[dim]Output: {output}[/dim]\n")
     
     try:
-        # Load config
+        # Load base config from YAML if provided, otherwise use defaults
+        if config:
+            yaml_config = load_config_file(config)
+        else:
+            # Try to load default config.yaml
+            default_config = Path(__file__).parent / "config" / "config.yaml"
+            if default_config.exists():
+                yaml_config = load_config_file(str(default_config))
+            else:
+                yaml_config = {}
+        
+        # Build migration config by merging YAML config with CLI options
         migration_config = {
             'max_retries': max_retries,
             'parallel_execution': parallel,
@@ -123,9 +147,21 @@ def migrate(
             'verbose': verbose or debug
         }
         
-        if config:
-            # TODO: Load from YAML file
-            logger.info(f"Loading config from: {config}")
+        # Merge converter config from YAML (including Gemini settings)
+        if 'converter' in yaml_config:
+            migration_config['converter'] = yaml_config['converter']
+            logger.info(f"✓ Loaded converter config with keys: {list(yaml_config['converter'].keys())}")
+            # Extract Gemini API key from config
+            if 'gemini' in yaml_config['converter']:
+                gemini_config = yaml_config['converter']['gemini']
+                logger.info(f"✓ Loaded gemini config with keys: {list(gemini_config.keys())}")
+                # Check if api_key_env is actually the API key (not env var name)
+                api_key_value = gemini_config.get('api_key_env', '')
+                logger.info(f"✓ API key from config: {api_key_value[:15]}... (length: {len(api_key_value)})")
+                if api_key_value and api_key_value.startswith('AIza'):
+                    # It's an actual API key, use it directly
+                    migration_config['converter']['gemini']['gemini_api_key'] = api_key_value
+                    logger.info("✓ Using Gemini API key from config file")
         
         # Create orchestrator
         orchestrator = MigrationOrchestrator(config=migration_config)

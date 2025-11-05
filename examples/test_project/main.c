@@ -1,47 +1,41 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include "config.h"
-#include "logger.h"
-#include "utils.h"
-#include "math_ops.h"
+#include "math_utils.h"
+#include "calculator.h"
 
-int main(int argc, char* argv[]) {
-    // Initialize configuration
-    Config* cfg = config_init();
-    logger_init(cfg);
+/**
+ * Hàm main để test các functions từ các modules khác nhau
+ */
+int main() {
+    printf("=== Test Math Utils ===\n");
     
-    logger_log(LOG_INFO, "Application started");
+    // Test add function
+    int result1 = add(10, 20);
+    printf("add(10, 20) = %d\n", result1);
     
-    // Test math operations
-    int32_t a = 10, b = 5;
-    printf("Add: %d + %d = %d\n", a, b, add(a, b));
-    printf("Subtract: %d - %d = %d\n", a, b, subtract(a, b));
-    printf("Multiply: %d * %d = %d\n", a, b, multiply(a, b));
-    printf("Divide: %d / %d = %d\n", a, b, divide(a, b));
-    printf("Power: %d ^ %d = %d\n", a, 3, power(a, 3));
-    printf("Factorial: %d! = %d\n", 5, factorial(5));
-    printf("GCD: gcd(%d, %d) = %d\n", 48, 18, gcd(48, 18));
+    // Test multiply function
+    int result2 = multiply(7, 8);
+    printf("multiply(7, 8) = %d\n", result2);
     
-    // Test string utilities
-    const char* test_str = "Hello, World!";
-    printf("String length: %d\n", string_length(test_str));
+    // Test power function
+    int result3 = power(2, 8);
+    printf("power(2, 8) = %d\n", result3);
     
-    char* copied = string_copy(test_str);
-    printf("Copied string: %s\n", copied);
-    free(copied);
+    printf("\n=== Test Calculator ===\n");
     
-    // Test array utilities
-    int arr[] = {5, 2, 8, 1, 9, 3};
-    int size = 6;
-    printf("Array: ");
-    array_print(arr, size);
-    printf("Max: %d\n", array_max(arr, size));
-    printf("Min: %d\n", array_min(arr, size));
+    // Test rectangle_area (sử dụng multiply từ math_utils)
+    int result4 = rectangle_area(5, 10);
+    printf("rectangle_area(5, 10) = %d\n", result4);
     
-    logger_log(LOG_INFO, "Application completed");
-    logger_shutdown();
-    config_destroy(cfg);
+    // Test rectangle_perimeter (sử dụng multiply và add từ math_utils)
+    int result5 = rectangle_perimeter(5, 10);
+    printf("rectangle_perimeter(5, 10) = %d\n", result5);
     
-    return SUCCESS;
+    // Test sum_range (sử dụng add từ math_utils)
+    int result6 = sum_range(10);
+    printf("sum_range(10) = %d\n", result6);
+    
+    printf("\n=== Test Complete ===\n");
+    
+    return 0;
 }
 
